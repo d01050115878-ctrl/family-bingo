@@ -151,9 +151,11 @@ input:focus { border-color: var(--accent); }
   background: #f8f6fc; border-radius: 12px; min-height: 46px;
 }
 .board-bank.locked { opacity: .55; pointer-events: none; }
+.board-bank.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; background: #eee6fb; }
 .bank-item {
   background: #fff; border: 2px solid #ddd3f0; border-radius: 8px; padding: 6px 9px; font-size: 12.5px;
   font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--ink);
+  cursor: grab;
 }
 .bank-item .bc-emoji { font-size: 15px; }
 .bank-item.selected { border-color: var(--accent); background: #e6def8; }
@@ -177,8 +179,10 @@ input:focus { border-color: var(--accent); }
 .bcell.line-hit { border-color: var(--line-hit); box-shadow: 0 0 0 2px var(--line-hit) inset; animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
 .bcell.buildable { cursor: pointer; }
+.bcell.buildable[draggable="true"] { cursor: grab; }
 .bcell.empty { background: #fff; border: 2px dashed #ddd3f0; }
 .bcell.empty .bc-plus { font-size: 20px; color: #c9bfe0; }
+.bcell.drag-over { border-color: var(--accent); background: #e6def8; }
 .board-preview.locked { opacity: .7; pointer-events: none; }
 .setup-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
 

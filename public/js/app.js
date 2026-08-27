@@ -187,7 +187,7 @@
 
   /* ---------------- 보드 만들기(자동/수동 배치) ---------------- */
   const AUTO_DESC = '항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!';
-  const MANUAL_DESC = '아래에서 항목을 고른 뒤, 보드의 빈 칸을 눌러 원하는 자리에 배치하세요. 채운 칸을 다시 누르면 항목을 빼낼 수 있어요.';
+  const MANUAL_DESC = '항목을 눌러 고른 뒤 칸을 클릭하거나, 항목을 칸으로 끌어다 놓아 배치하세요. 채운 칸끼리 끌어다 놓으면 자리가 바뀌고, 칸을 다시 누르거나 뱅크 쪽으로 끌어오면 항목이 빠져요.';
 
   function createBoardBuilder(cfg) {
     const st = { mode: 'auto', board: null, cells: null, selected: null, locked: false };
@@ -202,14 +202,28 @@
       return all.filter((it) => !placed.has(it));
     }
 
+    function placeAt(idx, item) { st.cells[idx] = item; }
+    function clearAt(idx) { st.cells[idx] = null; }
+    function swap(i, j) { const t = st.cells[i]; st.cells[i] = st.cells[j]; st.cells[j] = t; }
+
+    function readDrag(e) {
+      try { return JSON.parse(e.dataTransfer.getData('text/plain') || '{}'); } catch (err) { return {}; }
+    }
+
     function renderBank() {
       cfg.bankEl.innerHTML = '';
       remainingItems().forEach((item) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'bank-item' + (st.selected === item ? ' selected' : '');
+        b.draggable = !st.locked;
         b.innerHTML = cellContent(item, cfg.getCategory());
         b.onclick = () => { if (st.locked) return; st.selected = (st.selected === item) ? null : item; renderBank(); };
+        b.addEventListener('dragstart', (e) => {
+          if (st.locked) { e.preventDefault(); return; }
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', JSON.stringify({ source: 'bank', item }));
+        });
         cfg.bankEl.appendChild(b);
       });
     }
@@ -222,12 +236,35 @@
         const cell = document.createElement('div');
         cell.className = 'bcell buildable' + (item ? '' : ' empty');
         cell.innerHTML = item ? cellContent(item, cfg.getCategory()) : '<span class="bc-plus">+</span>';
+        cell.draggable = !st.locked && !!item;
         cell.onclick = () => {
           if (st.locked) return;
-          if (item) { st.cells[idx] = null; }
-          else if (st.selected) { st.cells[idx] = st.selected; st.selected = null; }
+          if (item) { clearAt(idx); }
+          else if (st.selected) { placeAt(idx, st.selected); st.selected = null; }
           renderManual();
         };
+        cell.addEventListener('dragstart', (e) => {
+          if (st.locked || !item) { e.preventDefault(); return; }
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', JSON.stringify({ source: 'cell', idx }));
+        });
+        cell.addEventListener('dragover', (e) => {
+          if (st.locked) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+        });
+        cell.addEventListener('dragenter', () => { if (!st.locked) cell.classList.add('drag-over'); });
+        cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+        cell.addEventListener('dragend', () => cell.classList.remove('drag-over'));
+        cell.addEventListener('drop', (e) => {
+          if (st.locked) return;
+          e.preventDefault();
+          const data = readDrag(e);
+          if (data.source === 'bank' && data.item) placeAt(idx, data.item);
+          else if (data.source === 'cell' && Number.isInteger(data.idx)) swap(idx, data.idx);
+          st.selected = null;
+          renderManual();
+        });
         cfg.gridEl.appendChild(cell);
       });
     }
@@ -272,6 +309,24 @@
     cfg.resetBtn.addEventListener('click', () => {
       if (st.locked) return;
       st.cells = Array(25).fill(null);
+      st.selected = null;
+      renderManual();
+    });
+
+    // 채운 칸의 항목을 뱅크 쪽으로 끌어다 놓으면 다시 빼낼 수 있도록 처리
+    cfg.bankEl.addEventListener('dragover', (e) => {
+      if (st.locked || st.mode !== 'manual') return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    cfg.bankEl.addEventListener('dragenter', () => { if (!st.locked) cfg.bankEl.classList.add('drag-over'); });
+    cfg.bankEl.addEventListener('dragleave', () => cfg.bankEl.classList.remove('drag-over'));
+    cfg.bankEl.addEventListener('drop', (e) => {
+      if (st.locked || st.mode !== 'manual') return;
+      e.preventDefault();
+      cfg.bankEl.classList.remove('drag-over');
+      const data = readDrag(e);
+      if (data.source === 'cell' && Number.isInteger(data.idx)) clearAt(data.idx);
       st.selected = null;
       renderManual();
     });
