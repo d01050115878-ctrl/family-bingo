@@ -1,0 +1,17 @@
+{
+  "name": "family-bingo",
+  "version": "1.0.0",
+  "description": "가족과 함께하는 숫자·동물·과일 빙고 - 혼자 연습, 온라인 최대 6인 대전",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

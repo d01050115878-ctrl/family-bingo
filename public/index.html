@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#241b3a">
+<meta name="description" content="가족과 함께 즐기는 숫자·동물·과일 빙고! 혼자서 컴퓨터와 연습하거나, 초대 코드로 최대 6명이 온라인 대전을 즐겨보세요.">
+<title>우리 가족 빙고 🎱</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.85em' font-size='90'>🎱</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ 메인 화면 ============ -->
+  <section class="screen active" id="screen-home">
+    <div class="home-card">
+      <h1 class="title">🎱 우리 가족 빙고</h1>
+      <p class="subtitle">숫자·동물&middot;곤충·과일 중 골라서! 5줄 빙고를 먼저 만들어보세요</p>
+
+      <div class="profile-card">
+        <button class="avatar-btn" id="myAvatarBtn" title="아바타 바꾸기">
+          <span id="myAvatar">🙂</span>
+          <span class="edit-badge">✏️</span>
+        </button>
+        <div class="profile-fields">
+          <label class="field tight">
+            <span>내 아이디</span>
+            <input id="playerName" type="text" maxlength="10" placeholder="이름을 적어 주세요">
+          </label>
+          <p class="profile-hint">온라인 대전에서 다른 사람에게 보여요</p>
+        </div>
+      </div>
+      <div class="avatar-picker hidden" id="avatarPicker"></div>
+
+      <div class="menu-grid">
+        <button class="menu-btn" data-go="screen-solo">
+          <span class="emoji">🤖</span>
+          <strong>혼자 연습하기</strong>
+          <small>컴퓨터 상대와 빙고 대결</small>
+        </button>
+        <button class="menu-btn" data-go="screen-online">
+          <span class="emoji">🌐</span>
+          <strong>온라인 대전</strong>
+          <small>초대 코드로 최대 6명</small>
+        </button>
+        <button class="menu-btn" data-go="screen-learn">
+          <span class="emoji">📖</span>
+          <strong>빙고 배우기</strong>
+          <small>규칙과 하는 법</small>
+        </button>
+      </div>
+
+      <p class="footer-link">
+        <a href="https://family-games-hub.onrender.com/" id="homeHubLink">🎮 다른 가족 게임 보러 가기</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ 혼자 연습하기 설정 ============ -->
+  <section class="screen" id="screen-solo">
+    <div class="home-card wide">
+      <button class="back-btn" data-go="screen-home">← 뒤로</button>
+      <h2>🤖 혼자 연습하기</h2>
+
+      <div id="soloOptions">
+        <h3 class="sec">어떤 빙고를 할까요?</h3>
+        <div class="cat-grid" id="catGridSolo"></div>
+
+        <h3 class="sec">난이도 고르기</h3>
+        <div class="level-grid" id="levelGridSolo"></div>
+
+        <h3 class="sec">컴퓨터 상대 인원</h3>
+        <div class="count-grid" id="aiCountGrid"></div>
+
+        <button class="primary big" id="soloNext">다음: 내 보드 만들기 ➡️</button>
+      </div>
+
+      <div class="hidden" id="soloBoardStep">
+        <h3 class="sec">🎯 내 보드 확인하기</h3>
+        <p class="desc">항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!</p>
+        <div class="board-preview" id="soloBoardGrid"></div>
+        <div class="setup-actions">
+          <button class="ghost" id="soloShuffle">🔀 다시 섞기</button>
+          <button class="primary" id="soloStart">대결 시작! 🎉</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 온라인 ============ -->
+  <section class="screen" id="screen-online">
+    <div class="home-card">
+      <button class="back-btn" data-go="screen-home">← 뒤로</button>
+      <h2>🌐 온라인 대전</h2>
+
+      <div class="online-box">
+        <h3 class="sec">방 만들기</h3>
+        <p class="desc">방을 만들면 <b>초대 코드</b>가 나와요. 가족·친구에게 알려 주세요! (최대 6명)</p>
+        <div class="cat-grid" id="catGridOnline"></div>
+        <div class="level-grid" id="levelGridOnline"></div>
+        <button class="primary" id="createRoom">방 만들기 🏠</button>
+      </div>
+
+      <div class="online-box">
+        <h3 class="sec">초대 코드로 참가</h3>
+        <div class="code-row">
+          <input id="joinCode" maxlength="6" placeholder="예: ABC123" autocomplete="off" autocapitalize="characters">
+          <button class="primary" id="joinRoom">참가 🚪</button>
+        </div>
+      </div>
+
+      <p class="net-status" id="netStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ 온라인 대기실 ============ -->
+  <section class="screen" id="screen-lobby">
+    <div class="home-card wide">
+      <button class="back-btn" id="lobbyLeave">← 나가기</button>
+      <h2>🚪 대기실</h2>
+
+      <div class="code-display" id="lobbyCode">------</div>
+      <div class="wait-actions">
+        <button class="ghost" id="copyCode">📋 코드 복사</button>
+        <button class="ghost" id="copyLink">🔗 링크 복사</button>
+        <button class="ghost" id="shareInvite">📤 초대 보내기</button>
+      </div>
+
+      <h3 class="sec">참가자 (<span id="lobbyCount">1</span>/6)</h3>
+      <ul class="roster" id="lobbyRoster"></ul>
+
+      <div id="lobbySettings">
+        <h3 class="sec">방장 설정</h3>
+        <div class="cat-grid" id="catGridLobby"></div>
+        <div class="level-grid" id="levelGridLobby"></div>
+      </div>
+
+      <div class="hidden" id="lobbyBoardStep">
+        <h3 class="sec">🎯 내 보드 만들기</h3>
+        <div class="board-preview" id="lobbyBoardGrid"></div>
+        <div class="setup-actions">
+          <button class="ghost" id="lobbyShuffle">🔀 다시 섞기</button>
+          <button class="primary" id="lobbyReady">준비 완료! ✅</button>
+        </div>
+      </div>
+
+      <button class="primary big hidden" id="lobbyStart">게임 시작! 🎉</button>
+      <p class="waiting" id="lobbyWaitMsg">참가자를 기다리는 중이에요 <span class="dots"><i>.</i><i>.</i><i>.</i></span></p>
+      <p class="net-status" id="lobbyStatus"></p>
+    </div>
+  </section>
+
+  <!-- ============ 규칙 배우기 ============ -->
+  <section class="screen" id="screen-learn">
+    <div class="home-card wide">
+      <button class="back-btn" data-go="screen-home">← 뒤로</button>
+      <h2>📖 빙고 배우기</h2>
+      <p class="desc">가로 5칸 × 세로 5칸, 25개 칸에 항목이 무작위로 놓여요.
+        차례로 뽑히는 항목이 내 보드에 있으면 자동으로 표시돼요.
+        가로·세로·대각선 한 줄(5칸)을 채우면 <b>빙고 한 줄</b>! 정해진 줄 수를 가장 먼저 채우면 승리해요.</p>
+
+      <div class="learn-list" id="learnList"></div>
+
+      <h3 class="sec">난이도</h3>
+      <ul class="rule-list">
+        <li><b>1단계</b> — 3줄 빙고를 먼저 만들면 승리 (쉬움)</li>
+        <li><b>2단계</b> — 4줄 빙고를 먼저 만들면 승리 (보통)</li>
+        <li><b>3단계</b> — 5줄 빙고를 먼저 만들면 승리 (어려움)</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ 게임 화면 ============ -->
+  <section class="screen game" id="screen-game">
+    <div class="game-wrap">
+      <div class="board-col">
+        <div class="draw-panel">
+          <div class="draw-current" id="drawCurrent">
+            <span class="draw-hint">아직 아무것도 안 뽑았어요</span>
+          </div>
+          <div class="draw-history" id="drawHistory"></div>
+        </div>
+
+        <div class="my-board-wrap">
+          <div class="board-preview" id="gameBoardGrid"></div>
+        </div>
+
+        <div class="game-controls">
+          <button class="primary" id="btnDraw">🎲 다음 뽑기</button>
+          <label class="check auto-check">
+            <input type="checkbox" id="autoToggle"> <span>⏱️ 자동 뽑기</span>
+          </label>
+          <button class="ctrl" id="btnHome" title="나가기">🏠<span>나가기</span></button>
+        </div>
+        <p class="turn-bar" id="hostNotice"></p>
+      </div>
+
+      <aside class="side-panel" id="sidePanel">
+        <div class="panel-tabs">
+          <button class="tab active" data-tab="players">🏆 순위</button>
+          <button class="tab" data-tab="log">📜 뽑힌 기록</button>
+          <button class="tab" data-tab="chat">💬 대화</button>
+        </div>
+        <div class="panel-body">
+          <div class="tab-pane active" id="pane-players"><ul id="playerProgress"></ul></div>
+          <div class="tab-pane" id="pane-log"><ol id="drawLog"></ol></div>
+          <div class="tab-pane" id="pane-chat">
+            <div id="chatList"></div>
+            <div class="chat-input">
+              <input id="chatText" maxlength="120" placeholder="메시지 보내기">
+              <button id="chatSend">보내기</button>
+            </div>
+            <div class="quick-msgs" id="quickMsgs"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ 모달 ============ -->
+  <div class="modal-back hidden" id="modalBack">
+    <div class="modal">
+      <div class="modal-emoji" id="modalEmoji">🎉</div>
+      <h3 id="modalTitle">알림</h3>
+      <p id="modalText"></p>
+      <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
