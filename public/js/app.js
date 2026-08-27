@@ -185,29 +185,149 @@
     return s;
   }
 
+  /* ---------------- 보드 만들기(자동/수동 배치) ---------------- */
+  const AUTO_DESC = '항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!';
+  const MANUAL_DESC = '아래에서 항목을 고른 뒤, 보드의 빈 칸을 눌러 원하는 자리에 배치하세요. 채운 칸을 다시 누르면 항목을 빼낼 수 있어요.';
+
+  function createBoardBuilder(cfg) {
+    const st = { mode: 'auto', board: null, cells: null, selected: null, locked: false };
+
+    function isComplete() { return st.mode === 'auto' ? !!st.board : !!(st.cells && st.cells.every((v) => v !== null)); }
+    function currentBoard() { return isComplete() ? (st.mode === 'auto' ? st.board.slice() : st.cells.slice()) : null; }
+    function notify() { cfg.onBoardChange(currentBoard(), st.mode); }
+
+    function remainingItems() {
+      const all = R.CATEGORIES[cfg.getCategory()].items;
+      const placed = new Set((st.cells || []).filter(Boolean));
+      return all.filter((it) => !placed.has(it));
+    }
+
+    function renderBank() {
+      cfg.bankEl.innerHTML = '';
+      remainingItems().forEach((item) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'bank-item' + (st.selected === item ? ' selected' : '');
+        b.innerHTML = cellContent(item, cfg.getCategory());
+        b.onclick = () => { if (st.locked) return; st.selected = (st.selected === item) ? null : item; renderBank(); };
+        cfg.bankEl.appendChild(b);
+      });
+    }
+
+    function renderAutoGrid() { renderBoard(cfg.gridEl, st.board, cfg.getCategory(), null, null); }
+
+    function renderManualGrid() {
+      cfg.gridEl.innerHTML = '';
+      st.cells.forEach((item, idx) => {
+        const cell = document.createElement('div');
+        cell.className = 'bcell buildable' + (item ? '' : ' empty');
+        cell.innerHTML = item ? cellContent(item, cfg.getCategory()) : '<span class="bc-plus">+</span>';
+        cell.onclick = () => {
+          if (st.locked) return;
+          if (item) { st.cells[idx] = null; }
+          else if (st.selected) { st.cells[idx] = st.selected; st.selected = null; }
+          renderManual();
+        };
+        cfg.gridEl.appendChild(cell);
+      });
+    }
+
+    function renderManual() {
+      renderBank();
+      renderManualGrid();
+      const filled = st.cells.filter(Boolean).length;
+      if (cfg.fillStatusEl) cfg.fillStatusEl.textContent = `${filled}/25칸 배치했어요`;
+      notify();
+    }
+
+    function setMode(mode) {
+      st.mode = mode;
+      st.selected = null;
+      cfg.modeButtons.forEach((b) => b.classList.toggle('selected', b.dataset.mode === mode));
+      cfg.bankEl.classList.toggle('hidden', mode !== 'manual');
+      if (cfg.fillStatusEl) cfg.fillStatusEl.classList.toggle('hidden', mode !== 'manual');
+      cfg.autoBtn.classList.toggle('hidden', mode !== 'auto');
+      cfg.fillBtn.classList.toggle('hidden', mode !== 'manual');
+      cfg.resetBtn.classList.toggle('hidden', mode !== 'manual');
+      if (cfg.descEl) cfg.descEl.textContent = mode === 'auto' ? AUTO_DESC : MANUAL_DESC;
+      if (mode === 'auto') {
+        if (!st.board) st.board = R.randomBoard(cfg.getCategory());
+        renderAutoGrid();
+        notify();
+      } else {
+        if (!st.cells) st.cells = Array(25).fill(null);
+        renderManual();
+      }
+    }
+
+    cfg.modeButtons.forEach((b) => b.addEventListener('click', () => { if (!st.locked) setMode(b.dataset.mode); }));
+    cfg.autoBtn.addEventListener('click', () => { if (st.locked) return; st.board = R.randomBoard(cfg.getCategory()); renderAutoGrid(); notify(); });
+    cfg.fillBtn.addEventListener('click', () => {
+      if (st.locked) return;
+      const remaining = R.shuffle(remainingItems());
+      let ri = 0;
+      st.cells = st.cells.map((v) => (v !== null ? v : remaining[ri++]));
+      renderManual();
+    });
+    cfg.resetBtn.addEventListener('click', () => {
+      if (st.locked) return;
+      st.cells = Array(25).fill(null);
+      st.selected = null;
+      renderManual();
+    });
+
+    return {
+      setCategory() {
+        st.board = null; st.cells = null; st.selected = null;
+        if (st.mode === 'auto') { st.board = R.randomBoard(cfg.getCategory()); renderAutoGrid(); }
+        else { st.cells = Array(25).fill(null); renderManual(); }
+        notify();
+      },
+      setLocked(locked) {
+        st.locked = locked;
+        cfg.gridEl.classList.toggle('locked', locked);
+        cfg.bankEl.classList.toggle('locked', locked);
+      },
+      showBoard(board) {
+        // 서버에 이미 제출된 보드를 그대로 보여줄 때(재접속 등) 사용
+        renderBoard(cfg.gridEl, board, cfg.getCategory(), null, null);
+      },
+      getBoard: currentBoard,
+      isComplete,
+      init() { setMode('auto'); },
+    };
+  }
+
   /* ---------------- 혼자 연습하기 ---------------- */
-  const soloDraft = { category: 'number', level: 1, aiCount: 2, board: null };
+  const soloDraft = { category: 'number', level: 1, aiCount: 2 };
   function renderSoloOptions() {
     buildCatGrid($('#catGridSolo'), soloDraft.category, (k) => { soloDraft.category = k; renderSoloOptions(); });
     buildLevelGrid($('#levelGridSolo'), soloDraft.level, (lv) => { soloDraft.level = lv; renderSoloOptions(); });
     buildCountGrid($('#aiCountGrid'), soloDraft.aiCount, (n) => { soloDraft.aiCount = n; renderSoloOptions(); });
   }
 
+  const soloBuilder = createBoardBuilder({
+    gridEl: $('#soloBoardGrid'), bankEl: $('#soloBoardBank'),
+    autoBtn: $('#soloShuffle'), fillBtn: $('#soloManualFill'), resetBtn: $('#soloManualReset'),
+    descEl: $('#soloBoardDesc'), fillStatusEl: $('#soloFillStatus'),
+    modeButtons: $$('#soloModeToggle .mode-btn'),
+    getCategory: () => soloDraft.category,
+    onBoardChange: (board) => { $('#soloStart').disabled = !board; },
+  });
+  soloBuilder.init();
+
   $('#soloNext').addEventListener('click', () => {
-    soloDraft.board = R.randomBoard(soloDraft.category);
     $('#soloOptions').classList.add('hidden');
     $('#soloBoardStep').classList.remove('hidden');
-    renderBoard($('#soloBoardGrid'), soloDraft.board, soloDraft.category, null, null);
-  });
-  $('#soloShuffle').addEventListener('click', () => {
-    soloDraft.board = R.randomBoard(soloDraft.category);
-    renderBoard($('#soloBoardGrid'), soloDraft.board, soloDraft.category, null, null);
+    soloBuilder.setCategory();
   });
   $('#soloStart').addEventListener('click', () => {
+    const board = soloBuilder.getBoard();
+    if (!board) { toast('보드 25칸을 모두 채워주세요!'); return; }
     state.category = soloDraft.category;
     state.level = soloDraft.level;
     state.aiCount = soloDraft.aiCount;
-    state.myBoard = soloDraft.board;
+    state.myBoard = board;
     startSoloGame();
   });
 
@@ -310,16 +430,23 @@
     });
   });
 
-  let lobbyLocalBoard = null;
-  let lobbyLocalCategory = null;
+  let lobbyLastCategory = null;
+  const lobbyBuilder = createBoardBuilder({
+    gridEl: $('#lobbyBoardGrid'), bankEl: $('#lobbyBoardBank'),
+    autoBtn: $('#lobbyShuffle'), fillBtn: $('#lobbyManualFill'), resetBtn: $('#lobbyManualReset'),
+    descEl: $('#lobbyBoardDesc'), fillStatusEl: $('#lobbyFillStatus'),
+    modeButtons: $$('#lobbyModeToggle .mode-btn'),
+    getCategory: () => state.online.category,
+    onBoardChange: (board) => { $('#lobbyReady').disabled = !board || state.online.myReady; },
+  });
+  lobbyBuilder.init();
 
   function enterLobbyFromResponse(res) {
     state.online.code = res.code;
     state.online.token = res.token;
     applyRoomSummary(res);
     state.myBoard = null;
-    lobbyLocalBoard = null;
-    lobbyLocalCategory = null;
+    lobbyLastCategory = null;
     localStorage.setItem('bingo_room', JSON.stringify({ code: res.code, token: res.token }));
     showScreen('screen-lobby');
     renderLobby();
@@ -351,14 +478,14 @@
     }, !state.online.isHost);
     $('#lobbySettings').classList.toggle('hidden', !state.online.isHost);
 
-    if (!lobbyLocalBoard || lobbyLocalCategory !== state.online.category) {
-      lobbyLocalCategory = state.online.category;
-      lobbyLocalBoard = R.randomBoard(state.online.category);
-    }
     $('#lobbyBoardStep').classList.remove('hidden');
-    renderBoard($('#lobbyBoardGrid'), state.online.myReady ? (state.myBoard || lobbyLocalBoard) : lobbyLocalBoard, state.online.category, null, null);
-    $('#lobbyShuffle').disabled = state.online.myReady;
-    $('#lobbyReady').disabled = state.online.myReady;
+    if (lobbyLastCategory !== state.online.category) {
+      lobbyLastCategory = state.online.category;
+      lobbyBuilder.setCategory();
+    }
+    if (state.online.myReady && state.myBoard) lobbyBuilder.showBoard(state.myBoard);
+    lobbyBuilder.setLocked(state.online.myReady);
+    $('#lobbyReady').disabled = state.online.myReady || !lobbyBuilder.isComplete();
     $('#lobbyReady').textContent = state.online.myReady ? '준비 완료됨 ✅' : '준비 완료! ✅';
 
     const connected = state.online.players.filter((p) => p.connected);
@@ -386,14 +513,13 @@
     });
   }
 
-  $('#lobbyShuffle').addEventListener('click', () => {
-    lobbyLocalBoard = R.randomBoard(state.online.category);
-    renderBoard($('#lobbyBoardGrid'), lobbyLocalBoard, state.online.category, null, null);
-  });
   $('#lobbyReady').addEventListener('click', () => {
-    socket.emit('room:board-ready', { board: lobbyLocalBoard }, (res) => {
+    const board = lobbyBuilder.getBoard();
+    if (!board) { toast('보드 25칸을 모두 채워주세요!'); return; }
+    socket.emit('room:board-ready', { board }, (res) => {
       if (!res.ok) { toast(res.message); return; }
-      state.myBoard = lobbyLocalBoard;
+      state.myBoard = board;
+      renderLobby();
     });
   });
   $('#lobbyStart').addEventListener('click', () => {
@@ -485,7 +611,7 @@
       applyRoomSummary(summary);
       state.mode = 'online';
       state.myBoard = null;
-      lobbyLocalBoard = null;
+      lobbyLastCategory = null;
       hideModal();
       showScreen('screen-lobby');
       renderLobby();
@@ -517,8 +643,7 @@
         renderAll();
         if (res.status === 'ended') onOnlineEnd();
       } else {
-        lobbyLocalBoard = state.myBoard;
-        lobbyLocalCategory = state.online.category;
+        lobbyLastCategory = null;
         showScreen('screen-lobby');
         renderLobby();
       }

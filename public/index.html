@@ -78,11 +78,19 @@
       </div>
 
       <div class="hidden" id="soloBoardStep">
-        <h3 class="sec">🎯 내 보드 확인하기</h3>
-        <p class="desc">항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!</p>
+        <h3 class="sec">🎯 내 보드 만들기</h3>
+        <div class="mode-toggle" id="soloModeToggle">
+          <button class="mode-btn selected" type="button" data-mode="auto">🔀 자동 완성</button>
+          <button class="mode-btn" type="button" data-mode="manual">✍️ 수동 완성</button>
+        </div>
+        <p class="desc" id="soloBoardDesc">항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!</p>
+        <div class="board-bank hidden" id="soloBoardBank"></div>
         <div class="board-preview" id="soloBoardGrid"></div>
+        <p class="fill-status hidden" id="soloFillStatus"></p>
         <div class="setup-actions">
           <button class="ghost" id="soloShuffle">🔀 다시 섞기</button>
+          <button class="ghost hidden" id="soloManualFill">⚡ 나머지 자동 채우기</button>
+          <button class="ghost hidden" id="soloManualReset">🗑️ 초기화</button>
           <button class="primary" id="soloStart">대결 시작! 🎉</button>
         </div>
       </div>
@@ -139,9 +147,18 @@
 
       <div class="hidden" id="lobbyBoardStep">
         <h3 class="sec">🎯 내 보드 만들기</h3>
+        <div class="mode-toggle" id="lobbyModeToggle">
+          <button class="mode-btn selected" type="button" data-mode="auto">🔀 자동 완성</button>
+          <button class="mode-btn" type="button" data-mode="manual">✍️ 수동 완성</button>
+        </div>
+        <p class="desc" id="lobbyBoardDesc">항목이 무작위로 배치돼요. 마음에 안 들면 다시 섞어보세요!</p>
+        <div class="board-bank hidden" id="lobbyBoardBank"></div>
         <div class="board-preview" id="lobbyBoardGrid"></div>
+        <p class="fill-status hidden" id="lobbyFillStatus"></p>
         <div class="setup-actions">
           <button class="ghost" id="lobbyShuffle">🔀 다시 섞기</button>
+          <button class="ghost hidden" id="lobbyManualFill">⚡ 나머지 자동 채우기</button>
+          <button class="ghost hidden" id="lobbyManualReset">🗑️ 초기화</button>
           <button class="primary" id="lobbyReady">준비 완료! ✅</button>
         </div>
       </div>
