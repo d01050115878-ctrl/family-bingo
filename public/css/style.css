@@ -180,6 +180,8 @@ input:focus { border-color: var(--accent); }
 @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
 .bcell.buildable { cursor: pointer; }
 .bcell.buildable[draggable="true"] { cursor: grab; }
+.bcell.clickable { cursor: pointer; box-shadow: 0 0 0 2px var(--accent) inset; }
+.bcell.clickable:hover { background: #e6def8; }
 .bcell.empty { background: #fff; border: 2px dashed #ddd3f0; }
 .bcell.empty .bc-plus { font-size: 20px; color: #c9bfe0; }
 .bcell.drag-over { border-color: var(--accent); background: #e6def8; }

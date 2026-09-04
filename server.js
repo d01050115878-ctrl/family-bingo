@@ -23,7 +23,6 @@ const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 6;
 const ROOM_TTL_MS = 30 * 60 * 1000;
 const RECONNECT_GRACE_MS = 10 * 60 * 1000;
-const AUTO_DRAW_MS = 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/healthz', (req, res) => res.send('ok'));
@@ -49,11 +48,10 @@ function makeRoom(code, hostToken) {
     hostToken,
     players: {}, // token -> {token,name,avatar,host,board,ready,connected,socketId}
     status: 'waiting', // waiting | playing | ended
-    deck: [],
-    drawnCount: 0,
+    drawnList: [],
+    turnOrder: [],
+    turnIndex: 0,
     winners: [],
-    autoEnabled: false,
-    autoTimer: null,
     createdAt: Date.now(),
     lastActivity: Date.now(),
     disconnectTimers: {},
@@ -67,7 +65,7 @@ function connectedCount(room) { return Object.values(room.players).filter((p) =>
 function computeLines(room, token) {
   const p = room.players[token];
   if (!p || !p.board || room.status === 'waiting') return 0;
-  const drawnSet = new Set(room.deck.slice(0, room.drawnCount));
+  const drawnSet = new Set(room.drawnList);
   const marked = Rules.markedFromDraws(p.board, drawnSet);
   return Rules.countCompletedLines(marked).count;
 }
@@ -82,47 +80,20 @@ function roomPublicPlayers(room) {
 function roomSummary(room) {
   return {
     category: room.category, level: room.level, target: Rules.targetLines(room.level),
-    status: room.status, drawnCount: room.drawnCount, maxPlayers: MAX_PLAYERS,
-    players: roomPublicPlayers(room), winners: room.winners.slice(), autoEnabled: room.autoEnabled,
+    status: room.status, drawnCount: room.drawnList.length, maxPlayers: MAX_PLAYERS,
+    players: roomPublicPlayers(room), winners: room.winners.slice(),
+    currentTurn: room.turnOrder[room.turnIndex] || null,
   };
 }
 
-function stopAuto(room) {
-  if (room.autoTimer) { clearInterval(room.autoTimer); room.autoTimer = null; }
-  room.autoEnabled = false;
-}
-
-function performDraw(room) {
-  if (room.status !== 'playing' || room.drawnCount >= Rules.CELLS) return null;
-  const item = room.deck[room.drawnCount];
-  room.drawnCount++;
-  touch(room);
-
-  const target = Rules.targetLines(room.level);
-  const newWinners = Object.values(room.players)
-    .filter((p) => p.board && !room.winners.includes(p.token) && computeLines(room, p.token) >= target)
-    .map((p) => p.token);
-
-  let ended = false;
-  if (newWinners.length) {
-    room.winners.push(...newWinners);
-    room.status = 'ended';
-    ended = true;
-    stopAuto(room);
-  } else if (room.drawnCount >= Rules.CELLS) {
-    // 25개를 다 뽑으면 보드가 가득 차 12줄이 전부 완성되므로 이 분기는 이론상 발생하지 않지만
-    // 안전망으로 남겨둔다.
-    room.status = 'ended';
-    ended = true;
-    stopAuto(room);
+function advanceTurn(room) {
+  if (!room.turnOrder.length) return;
+  for (let i = 1; i <= room.turnOrder.length; i++) {
+    const idx = (room.turnIndex + i) % room.turnOrder.length;
+    const tok = room.turnOrder[idx];
+    const p = room.players[tok];
+    if (p && p.connected) { room.turnIndex = idx; return; }
   }
-
-  const payload = {
-    item, drawnCount: room.drawnCount, target, ended,
-    winners: room.winners.slice(), players: roomPublicPlayers(room),
-  };
-  io.to(room.code).emit('game:draw', payload);
-  return payload;
 }
 
 function assignNextHost(room) {
@@ -196,7 +167,7 @@ io.on('connection', (socket) => {
 
     cb && cb({
       ok: true, code, token: p.token, myBoard: p.board,
-      drawnList: room.deck.slice(0, room.drawnCount), ...roomSummary(room),
+      drawnList: room.drawnList.slice(), ...roomSummary(room),
     });
     socket.to(code).emit('room:opponent-reconnected', roomSummary(room));
   });
@@ -233,8 +204,10 @@ io.on('connection', (socket) => {
     if (connected.length < 2) return cb && cb({ ok: false, message: '최소 2명이 모여야 시작할 수 있어요.' });
     if (!connected.every((p) => p.board)) return cb && cb({ ok: false, message: '아직 보드를 준비하지 않은 참가자가 있어요.' });
 
-    room.deck = Rules.shuffle(Rules.CATEGORIES[room.category].items);
-    room.drawnCount = 0;
+    const connectedTokens = connected.map((p) => p.token);
+    room.turnOrder = connectedTokens;
+    room.turnIndex = 0;
+    room.drawnList = [];
     room.winners = [];
     room.status = 'playing';
     touch(room);
@@ -242,35 +215,49 @@ io.on('connection', (socket) => {
     io.to(room.code).emit('game:start', roomSummary(room));
   });
 
-  socket.on('room:draw', (cb) => {
+  socket.on('room:call-number', (payload = {}, cb) => {
     const room = rooms.get(socket.data.roomCode);
-    if (!room || room.status !== 'playing') return cb && cb({ ok: false, message: '지금은 뽑을 수 없어요.' });
-    if (socket.data.token !== room.hostToken) return cb && cb({ ok: false, message: '방장만 뽑을 수 있어요.' });
-    const result = performDraw(room);
-    cb && cb(result ? { ok: true } : { ok: false, message: '더 이상 뽑을 항목이 없어요.' });
-  });
+    if (!room || room.status !== 'playing') return cb && cb({ ok: false, message: '지금은 번호를 부를 수 없어요.' });
+    const currentTurnToken = room.turnOrder[room.turnIndex];
+    if (socket.data.token !== currentTurnToken) return cb && cb({ ok: false, message: '내 차례가 아니에요.' });
+    const item = payload.item;
+    const cat = Rules.CATEGORIES[room.category];
+    if (!cat || !cat.items.includes(item)) return cb && cb({ ok: false, message: '올바르지 않은 번호예요.' });
+    if (room.drawnList.includes(item)) return cb && cb({ ok: false, message: '이미 불린 번호예요.' });
 
-  socket.on('room:auto-toggle', (payload = {}) => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.status !== 'playing' || socket.data.token !== room.hostToken) return;
-    stopAuto(room);
-    if (payload.enabled) {
-      room.autoEnabled = true;
-      room.autoTimer = setInterval(() => {
-        if (!rooms.has(room.code) || room.status !== 'playing') { stopAuto(room); return; }
-        performDraw(room);
-      }, AUTO_DRAW_MS);
+    room.drawnList.push(item);
+    touch(room);
+
+    const target = Rules.targetLines(room.level);
+    const newWinners = Object.values(room.players)
+      .filter((p) => p.board && !room.winners.includes(p.token) && computeLines(room, p.token) >= target)
+      .map((p) => p.token);
+
+    let ended = false;
+    if (newWinners.length) {
+      room.winners.push(...newWinners);
+      room.status = 'ended';
+      ended = true;
+    } else {
+      advanceTurn(room);
     }
-    io.to(room.code).emit('room:auto-state', { enabled: room.autoEnabled });
+
+    const outPayload = {
+      item, drawnCount: room.drawnList.length, target, ended,
+      winners: room.winners.slice(), players: roomPublicPlayers(room),
+      currentTurn: room.turnOrder[room.turnIndex] || null,
+    };
+    io.to(room.code).emit('game:draw', outPayload);
+    cb && cb({ ok: true });
   });
 
   socket.on('room:rematch', () => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || socket.data.token !== room.hostToken) return;
-    stopAuto(room);
     Object.values(room.players).forEach((p) => { p.board = null; });
-    room.deck = [];
-    room.drawnCount = 0;
+    room.turnOrder = [];
+    room.turnIndex = 0;
+    room.drawnList = [];
     room.winners = [];
     room.status = 'waiting';
     touch(room);
@@ -309,9 +296,12 @@ io.on('connection', (socket) => {
     me.connected = false;
     socket.leave(code);
 
+    if (room.status === 'playing' && room.turnOrder[room.turnIndex] === token) {
+      advanceTurn(room);
+    }
+
     const finalize = () => {
       if (connectedCount(room) === 0) {
-        stopAuto(room);
         rooms.delete(code);
         return;
       }
@@ -335,7 +325,7 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (now - room.lastActivity > ROOM_TTL_MS) { stopAuto(room); rooms.delete(code); }
+    if (now - room.lastActivity > ROOM_TTL_MS) rooms.delete(code);
   }
 }, 60 * 1000);
 

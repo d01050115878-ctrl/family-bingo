@@ -39,7 +39,7 @@
     profile: { name: '', avatar: '🙂' },
     online: {
       code: null, token: null, isHost: false, myReady: false,
-      category: 'number', level: 1, target: 3, players: [], winners: [], autoEnabled: false, status: 'waiting',
+      category: 'number', level: 1, target: 3, players: [], winners: [], currentTurn: null, status: 'waiting',
     },
   };
 
@@ -162,15 +162,20 @@
     const emoji = EMOJI_MAP[item] || '❔';
     return `<span class="bc-emoji">${emoji}</span><span class="bc-label">${item}</span>`;
   }
-  function renderBoard(el, board, category, drawnSet, hitIdxSet) {
+  function renderBoard(el, board, category, drawnSet, hitIdxSet, onCellClick) {
     el.innerHTML = '';
     if (!board) return;
     board.forEach((item, idx) => {
       const cell = document.createElement('div');
       cell.className = 'bcell';
-      if (drawnSet && drawnSet.has(item)) cell.classList.add('marked');
+      const marked = !!(drawnSet && drawnSet.has(item));
+      if (marked) cell.classList.add('marked');
       if (hitIdxSet && hitIdxSet.has(idx)) cell.classList.add('line-hit');
       cell.innerHTML = cellContent(item, category);
+      if (onCellClick && !marked) {
+        cell.classList.add('clickable');
+        cell.onclick = () => onCellClick(item, idx);
+      }
       el.appendChild(cell);
     });
   }
@@ -513,7 +518,7 @@
     state.online.target = summary.target;
     state.online.status = summary.status;
     state.online.players = summary.players || [];
-    state.online.autoEnabled = !!summary.autoEnabled;
+    state.online.currentTurn = summary.currentTurn || null;
     state.online.winners = summary.winners || [];
     const me = state.online.players.find((p) => p.token === state.online.token);
     state.online.isHost = !!(me && me.host);
@@ -586,7 +591,7 @@
     localStorage.removeItem('bingo_room');
     state.online = {
       code: null, token: null, isHost: false, myReady: false,
-      category: 'number', level: 1, target: 3, players: [], winners: [], autoEnabled: false, status: 'waiting',
+      category: 'number', level: 1, target: 3, players: [], winners: [], currentTurn: null, status: 'waiting',
     };
   }
   $('#lobbyLeave').addEventListener('click', () => {
@@ -652,6 +657,7 @@
       state.drawnSet.add(payload.item);
       state.online.players = payload.players;
       state.online.target = payload.target;
+      state.online.currentTurn = payload.currentTurn || null;
       if (payload.ended) {
         state.status = 'ended';
         state.online.winners = payload.winners;
@@ -659,8 +665,6 @@
       renderAll();
       if (payload.ended) onOnlineEnd();
     });
-
-    socket.on('room:auto-state', ({ enabled }) => { $('#autoToggle').checked = enabled; });
 
     socket.on('game:rematch-start', (summary) => {
       applyRoomSummary(summary);
@@ -754,7 +758,8 @@
     hist.scrollTop = hist.scrollHeight;
 
     const hitSet = state.myBoard ? computeHitSet(state.myBoard, state.drawnSet) : new Set();
-    renderBoard($('#gameBoardGrid'), state.myBoard, cat, state.drawnSet, hitSet);
+    const canCall = state.mode === 'online' && state.status === 'playing' && state.online.currentTurn === state.online.token;
+    renderBoard($('#gameBoardGrid'), state.myBoard, cat, state.drawnSet, hitSet, canCall ? handleCallNumber : null);
 
     renderParticipants();
 
@@ -791,34 +796,48 @@
     });
   }
 
+  function turnPlayerName() {
+    const p = state.online.players.find((pl) => pl.token === state.online.currentTurn);
+    return p ? p.name : '다음 사람';
+  }
+
   function updateControlsForMode() {
+    const autoWrap = $('#autoToggle').closest('.auto-check');
     if (state.mode === 'solo') {
+      $('#btnDraw').classList.remove('hidden');
       $('#btnDraw').disabled = state.status !== 'playing';
+      if (autoWrap) autoWrap.classList.remove('hidden');
       $('#autoToggle').disabled = false;
       $('#hostNotice').textContent = '';
       $('#chatText').disabled = true; $('#chatSend').disabled = true;
       $('#chatText').placeholder = '온라인 대전에서만 대화할 수 있어요';
     } else {
-      const isHost = state.online.isHost;
-      $('#btnDraw').disabled = !isHost || state.status !== 'playing';
-      $('#autoToggle').disabled = !isHost;
-      $('#hostNotice').textContent = isHost ? '' : '👑 방장만 뽑기 버튼을 누를 수 있어요';
+      $('#btnDraw').classList.add('hidden');
+      if (autoWrap) autoWrap.classList.add('hidden');
+      if (state.status === 'playing') {
+        const myTurn = state.online.currentTurn === state.online.token;
+        $('#hostNotice').textContent = myTurn
+          ? '📣 내 차례예요! 내 보드에서 번호를 눌러 불러보세요'
+          : `⏳ ${turnPlayerName()}님 차례예요`;
+      } else {
+        $('#hostNotice').textContent = '';
+      }
       $('#chatText').disabled = false; $('#chatSend').disabled = false;
       $('#chatText').placeholder = '메시지 보내기';
     }
   }
 
+  function handleCallNumber(item) {
+    socket.emit('room:call-number', { item }, (res) => { if (res && res.ok === false) toast(res.message); });
+  }
+
   $('#btnDraw').addEventListener('click', () => {
     if (state.mode === 'solo') drawSolo();
-    else socket.emit('room:draw', (res) => { if (res && res.ok === false) toast(res.message); });
   });
 
   $('#autoToggle').addEventListener('change', (e) => {
     if (state.mode === 'solo') {
       if (e.target.checked) startAutoSolo(); else stopAutoSolo();
-    } else {
-      if (!state.online.isHost) { e.target.checked = !e.target.checked; return; }
-      socket.emit('room:auto-toggle', { enabled: e.target.checked });
     }
   });
 
@@ -879,7 +898,7 @@
   function buildLearnList() {
     const items = [
       { ico: '🧩', t: '무작위 보드', s: '25개 항목이 무작위로 5×5칸에 놓여요' },
-      { ico: '📢', t: '항목 뽑기', s: '뽑힌 항목이 내 보드에 있으면 자동으로 표시돼요' },
+      { ico: '📢', t: '번호 부르기', s: '혼자 연습은 자동으로, 온라인 대전은 차례가 된 사람이 자기 보드에서 번호를 눌러 불러요' },
       { ico: '➖', t: '줄 완성', s: '가로·세로·대각선 한 줄(5칸)을 채우면 빙고 한 줄이에요' },
       { ico: '🏆', t: '먼저 목표 줄 수 채우기', s: '난이도에서 정한 줄 수를 가장 먼저 채우면 승리해요' },
     ];
