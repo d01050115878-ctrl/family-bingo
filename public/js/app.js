@@ -32,10 +32,10 @@
     drawnSet: new Set(),
     status: 'idle',        // idle | playing | ended
     ai: [],
-    deckSolo: [],
-    deckIdx: 0,
+    turnOrder: [],          // solo: ['me', 'ai0', ...] - 차례 순서
+    turnIndex: 0,
+    turnTimer: null,
     winners: [],
-    autoTimer: null,
     profile: { name: '', avatar: '🙂' },
     online: {
       code: null, token: null, isHost: false, myReady: false,
@@ -397,21 +397,32 @@
     state.drawnList = [];
     state.drawnSet = new Set();
     state.status = 'playing';
-    state.deckSolo = R.shuffle(R.CATEGORIES[state.category].items);
-    state.deckIdx = 0;
     state.winners = [];
     state.ai = Array.from({ length: state.aiCount }, (_, i) => ({
       id: 'ai' + i, name: `컴퓨터 ${i + 1}`, avatar: AI_AVATARS[i % AI_AVATARS.length],
       board: R.randomBoard(state.category),
     }));
+    state.turnOrder = ['me', ...state.ai.map((a) => a.id)];
+    state.turnIndex = 0;
     showScreen('screen-game');
     resetGameScreenUI();
     renderAll();
+    scheduleSoloAiTurn();
   }
 
-  function drawSolo() {
-    if (state.status !== 'playing' || state.deckIdx >= state.deckSolo.length) return;
-    const item = state.deckSolo[state.deckIdx++];
+  const SOLO_TURN_DELAY_MS = 1100;
+
+  function remainingSoloItems() {
+    return R.CATEGORIES[state.category].items.filter((it) => !state.drawnSet.has(it));
+  }
+
+  function soloTurnName(id) {
+    if (id === 'me') return state.profile.name || '나';
+    const ai = state.ai.find((a) => a.id === id);
+    return ai ? ai.name : id;
+  }
+
+  function applySoloDraw(item) {
     state.drawnList.push(item);
     state.drawnSet.add(item);
 
@@ -420,20 +431,34 @@
     if (linesCountFor(state.myBoard, state.drawnSet) >= target) winners.push('me');
     state.ai.forEach((a) => { if (linesCountFor(a.board, state.drawnSet) >= target) winners.push(a.id); });
 
-    if (winners.length) { state.status = 'ended'; state.winners = winners; stopAutoSolo(); }
+    if (winners.length) {
+      state.status = 'ended';
+      state.winners = winners;
+    } else {
+      state.turnIndex = (state.turnIndex + 1) % state.turnOrder.length;
+    }
     renderAll();
     if (winners.length) onSoloEnd();
+    else scheduleSoloAiTurn();
   }
 
-  function startAutoSolo() {
-    stopAutoSolo();
-    state.autoTimer = setInterval(() => {
-      if (state.status !== 'playing') { stopAutoSolo(); return; }
-      drawSolo();
-    }, 2500);
+  function soloCallNumber(item) {
+    if (state.status !== 'playing') return;
+    if (state.turnOrder[state.turnIndex] !== 'me') { toast('내 차례가 아니에요.'); return; }
+    if (state.drawnSet.has(item)) return;
+    clearTimeout(state.turnTimer);
+    applySoloDraw(item);
   }
-  function stopAutoSolo() {
-    if (state.autoTimer) { clearInterval(state.autoTimer); state.autoTimer = null; }
+
+  function scheduleSoloAiTurn() {
+    clearTimeout(state.turnTimer);
+    if (state.status !== 'playing' || state.turnOrder[state.turnIndex] === 'me') return;
+    state.turnTimer = setTimeout(() => {
+      if (state.status !== 'playing') return;
+      const pool = remainingSoloItems();
+      if (!pool.length) return;
+      applySoloDraw(pool[Math.floor(Math.random() * pool.length)]);
+    }, SOLO_TURN_DELAY_MS);
   }
 
   function onSoloEnd() {
@@ -732,7 +757,6 @@
     $('#drawLog').innerHTML = '';
     $('#chatList').innerHTML = '';
     $('#playerProgress').innerHTML = '';
-    $('#autoToggle').checked = false;
     $('#drawCurrent').innerHTML = '<span class="draw-hint">아직 아무것도 안 뽑았어요</span>';
     buildQuickMsgs();
     $$('.panel-tabs .tab').forEach((t, i) => t.classList.toggle('active', i === 0));
@@ -758,8 +782,12 @@
     hist.scrollTop = hist.scrollHeight;
 
     const hitSet = state.myBoard ? computeHitSet(state.myBoard, state.drawnSet) : new Set();
-    const canCall = state.mode === 'online' && state.status === 'playing' && state.online.currentTurn === state.online.token;
-    renderBoard($('#gameBoardGrid'), state.myBoard, cat, state.drawnSet, hitSet, canCall ? handleCallNumber : null);
+    let onCellClick = null;
+    if (state.status === 'playing') {
+      if (state.mode === 'online' && state.online.currentTurn === state.online.token) onCellClick = handleCallNumber;
+      else if (state.mode === 'solo' && state.turnOrder[state.turnIndex] === 'me') onCellClick = soloCallNumber;
+    }
+    renderBoard($('#gameBoardGrid'), state.myBoard, cat, state.drawnSet, hitSet, onCellClick);
 
     renderParticipants();
 
@@ -802,18 +830,19 @@
   }
 
   function updateControlsForMode() {
-    const autoWrap = $('#autoToggle').closest('.auto-check');
     if (state.mode === 'solo') {
-      $('#btnDraw').classList.remove('hidden');
-      $('#btnDraw').disabled = state.status !== 'playing';
-      if (autoWrap) autoWrap.classList.remove('hidden');
-      $('#autoToggle').disabled = false;
-      $('#hostNotice').textContent = '';
+      if (state.status === 'playing') {
+        const turnId = state.turnOrder[state.turnIndex];
+        const myTurn = turnId === 'me';
+        $('#hostNotice').textContent = myTurn
+          ? '📣 내 차례예요! 내 보드에서 번호를 눌러 불러보세요'
+          : `⏳ ${soloTurnName(turnId)} 차례예요...`;
+      } else {
+        $('#hostNotice').textContent = '';
+      }
       $('#chatText').disabled = true; $('#chatSend').disabled = true;
       $('#chatText').placeholder = '온라인 대전에서만 대화할 수 있어요';
     } else {
-      $('#btnDraw').classList.add('hidden');
-      if (autoWrap) autoWrap.classList.add('hidden');
       if (state.status === 'playing') {
         const myTurn = state.online.currentTurn === state.online.token;
         $('#hostNotice').textContent = myTurn
@@ -831,16 +860,6 @@
     socket.emit('room:call-number', { item }, (res) => { if (res && res.ok === false) toast(res.message); });
   }
 
-  $('#btnDraw').addEventListener('click', () => {
-    if (state.mode === 'solo') drawSolo();
-  });
-
-  $('#autoToggle').addEventListener('change', (e) => {
-    if (state.mode === 'solo') {
-      if (e.target.checked) startAutoSolo(); else stopAutoSolo();
-    }
-  });
-
   $('#btnHome').addEventListener('click', () => {
     showModal({
       emoji: '🏠', title: '나가시겠어요?', text: '진행 중인 게임에서 나가요.',
@@ -852,7 +871,7 @@
   });
 
   function goHome() {
-    stopAutoSolo();
+    clearTimeout(state.turnTimer);
     if (state.mode === 'online') leaveOnlineRoom();
     state.mode = null;
     hideModal();
@@ -898,7 +917,7 @@
   function buildLearnList() {
     const items = [
       { ico: '🧩', t: '무작위 보드', s: '25개 항목이 무작위로 5×5칸에 놓여요' },
-      { ico: '📢', t: '번호 부르기', s: '혼자 연습은 자동으로, 온라인 대전은 차례가 된 사람이 자기 보드에서 번호를 눌러 불러요' },
+      { ico: '📢', t: '번호 부르기', s: '차례가 된 사람이 자기 보드에서 번호를 눌러 불러요 (컴퓨터 차례는 자동으로 진행돼요)' },
       { ico: '➖', t: '줄 완성', s: '가로·세로·대각선 한 줄(5칸)을 채우면 빙고 한 줄이에요' },
       { ico: '🏆', t: '먼저 목표 줄 수 채우기', s: '난이도에서 정한 줄 수를 가장 먼저 채우면 승리해요' },
     ];
